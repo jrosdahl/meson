@@ -1489,7 +1489,7 @@ class BuildTarget(Target):
         # get_internal_static_libraries(): Installed static libraries include
         # objects from all their dependencies already.
         result: OrderedSet[BuildTargetTypes] = OrderedSet()
-        visited: T.Set[BuildTargetTypes] = set()
+        visited: T.Set[T.Tuple[BuildTargetTypes, bool, bool]] = set()
         for t in itertools.chain(self.link_targets, self.link_whole_targets):
             if t not in result:
                 result.add(t)
@@ -1497,7 +1497,7 @@ class BuildTarget(Target):
                     t.get_dependencies_recurse(result, visited, handled_by_rustc=self.uses_rust())
         return result
 
-    def get_dependencies_recurse(self, result: OrderedSet[BuildTargetTypes], visited: T.Set[BuildTargetTypes],
+    def get_dependencies_recurse(self, result: OrderedSet[BuildTargetTypes], visited: T.Set[T.Tuple[BuildTargetTypes, bool, bool]],
                                  include_internals: bool = True, handled_by_rustc: bool = False) -> None:
         # self is always a static library because we don't need to pull dependencies
         # of shared libraries. If self is installed (not internal) it already
@@ -1505,9 +1505,10 @@ class BuildTarget(Target):
         # skip them.
         include_internals = include_internals and self.is_internal()
         for t in self.link_targets:
-            if t in visited:
+            key = (t, include_internals, handled_by_rustc)
+            if key in visited:
                 continue
-            visited.add(t)
+            visited.add(key)
             uses_rust_abi = isinstance(t, BuildTarget) and t.uses_rust_abi()
             if not handled_by_rustc and uses_rust_abi:
                 # Rules for including libraries via Rust rlibs and staticlibs are complex:
@@ -2935,7 +2936,7 @@ class CustomTargetBase:
 
     rust_crate_type = ''
 
-    def get_dependencies_recurse(self, result: OrderedSet[BuildTargetTypes], visited: T.Set[BuildTargetTypes],
+    def get_dependencies_recurse(self, result: OrderedSet[BuildTargetTypes], visited: T.Set[T.Tuple[BuildTargetTypes, bool, bool]],
                                  include_internals: bool = True) -> None:
         pass
 

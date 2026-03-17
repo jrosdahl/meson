@@ -2124,3 +2124,48 @@ class InternalTests(unittest.TestCase):
                 self.assertEqual(actual.compile_args, expected.compile_args)
                 self.assertEqual(actual.link_args, expected.link_args)
                 self.assertEqual(actual.cmake, expected.cmake)
+
+    def test_get_dependencies_path_sensitive(self) -> None:
+        """Regression test for the visited-set fix in get_dependencies_recurse.
+
+        An internal static library B that is first encountered via an installed
+        (non-internal) static library A — and therefore NOT added to result on
+        that path — must still be added to result when it is later encountered
+        via an internal static library C, where include_internals=True.
+
+        Dependency graph:
+            top → [A (installed), C (internal)]
+            A (installed) → B (internal)
+            C (internal)  → B (internal)
+
+        B must appear in top.get_dependencies() because path C→B is valid.
+        """
+        from mesonbuild.build import StaticLibrary
+
+        class FakeStaticLib(StaticLibrary):
+            """Minimal StaticLibrary stub that bypasses the real __init__."""
+            def __init__(self, name: str, install: bool = False) -> None:
+                self.name = name
+                self.install = install
+                self.link_targets: T.List['FakeStaticLib'] = []
+                self.link_whole_targets: T.List['FakeStaticLib'] = []
+                self.rust_crate_type = 'rlib'
+
+            def is_internal(self) -> bool:
+                return not self.install
+
+            def uses_rust(self) -> bool:
+                return False
+
+            def uses_rust_abi(self) -> bool:
+                return False
+
+        B = FakeStaticLib('B', install=False)   # internal
+        A = FakeStaticLib('A', install=True)    # installed → include_internals=False for A's subtree
+        A.link_targets = [B]
+        C = FakeStaticLib('C', install=False)   # internal → include_internals=True for C's subtree
+        C.link_targets = [B]
+        top = FakeStaticLib('top', install=False)
+        top.link_targets = [A, C]
+
+        self.assertIn(B, top.get_dependencies())
